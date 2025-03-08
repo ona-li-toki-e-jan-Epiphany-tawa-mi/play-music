@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 200809L
+#define _POSIX_C_SOURCE 199309L
 #include <assert.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -7,6 +7,7 @@
 // POSIX.
 #include <dirent.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -91,15 +92,15 @@ NONNULL static void run(
     };
 }
 
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
-
 NONNULL static bool isMusicFile(const char *const path) {
     assert(path);
     // TODO.
     return true;
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Playlists                                                                  //
+////////////////////////////////////////////////////////////////////////////////
 
 // Zero initialized.
 // Deinitialize with playlist_deinit().
@@ -111,7 +112,7 @@ typedef struct {
 
 static const size_t playlist_initial_size = 50;
 
-NONNULL static void playlistDeinit(Playlist* playlist) {
+NONNULL static void playlistDeinit(Playlist *const playlist) {
     assert(playlist);
 
     for (size_t i = 0; i < playlist->count; ++i) free(playlist->songs[i]);
@@ -170,11 +171,35 @@ NONNULL static Playlist playlistInitFromDirectory(const char *const path) {
     return playlist;
 }
 
+NONNULL static void playlistShuffle(Playlist *const playlist) {
+    assert(playlist);
+
+    // https://en.wikipedia.org/wiki/Fisher%E2%80%93Yates_shuffle
+    for (size_t i = 0; i < playlist->count; ++i) {
+        const size_t j     = i + (size_t)rand() % (playlist->count - i);
+        char *const song   = playlist->songs[i];
+        playlist->songs[i] = playlist->songs[j];
+        playlist->songs[j] = song;
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
+
 int main(int argc, char** argv) {
+    struct timespec tp;
+    if (-1 == clock_gettime(CLOCK_MONOTONIC, &tp)) {
+        perror("Failed to read from monotonic clock");
+        exit(1);
+    }
+    srand((unsigned int)tp.tv_sec);
+
     // 1 - skip program name.
-    for (size_t directory = 1; directory < argc; ++directory) {
+    for (int directory = 1; directory < argc; ++directory) {
         Playlist playlist = playlistInitFromDirectory(argv[directory]);
-i
+        playlistShuffle(&playlist);
+
         for (size_t song = 0; song < playlist.count; ++song) {
             static const char* args[1];
             args[0] = playlist.songs[song];

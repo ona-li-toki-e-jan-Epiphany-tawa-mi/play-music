@@ -1,0 +1,5 @@
+# Build artifacts.
+play-music
+
+# Nix.
+flake.lock

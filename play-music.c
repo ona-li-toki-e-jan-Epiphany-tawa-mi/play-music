@@ -107,7 +107,9 @@ NONNULL static void runCommand(
 
 // TODO: support more extensions.
 static const char *const music_file_extensions[] = {
-    ".mp3"
+    ".mp3",
+    ".flac",
+    ".wav"
 };
 
 NONNULL static bool isMusicFile(const char *const path) {

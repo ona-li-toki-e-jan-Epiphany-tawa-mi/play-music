@@ -252,6 +252,7 @@ typedef struct {
     const char* program_name;
     bool        dont_shuffle;
     const char* match; // NULL for no matching.
+    bool        dont_repeat;
 
     size_t      directory_count;
     const char* directories[PARSED_ARGUMENTS_MAX_DIRECTORIES];
@@ -289,7 +290,11 @@ NONNULL static void display_help(const ParsedArguments *const parsed_arguments) 
         "  --match REGEX\n"
         "    Only plays songs whose file name matches REGEX.\n"
         "    REGEX is interpreted as an extended regular expression (see\n"
-        "    regex(3).)\n",
+        "    regex(3).)\n"
+        "\n"
+        "  --no-repeat\n"
+        "    Exits once all the songs have been played instead of repeating\n"
+        "    them in an endless loop.\n",
         parsed_arguments->program_name
     );
 }
@@ -336,6 +341,10 @@ NONNULL static ParsedArguments parseArguments(
             }
             if (0 == strcmp("--match", next)) {
                 state = ARGUMENT_PARSER_MATCH;
+                break;
+            }
+            if (0 == strcmp("--no-repeat", next)) {
+                parsed_arguments.dont_repeat = true;
                 break;
             }
             if (0 == strcmp("--", next)) {
@@ -435,25 +444,27 @@ int main(const int argc, const char *const *const argv) {
         exit(1);
     }
 
-    for (size_t i = 0; i < arguments.directory_count; ++i) {
-        const char *const directory = arguments.directories[i];
-        printf("INFO: Loading music from directory '%s'\n", directory);
-        Playlist playlist =
-            playlistInitFromDirectory(
-                directory,
-                arguments.match ? &regex : NULL
-            );
+    do {
+        for (size_t i = 0; i < arguments.directory_count; ++i) {
+            const char *const directory = arguments.directories[i];
+            printf("INFO: Loading music from directory '%s'\n", directory);
+            Playlist playlist =
+                playlistInitFromDirectory(
+                    directory,
+                    arguments.match ? &regex : NULL
+                );
 
-        if (!arguments.dont_shuffle) playlistShuffle(&playlist);
+            if (!arguments.dont_shuffle) playlistShuffle(&playlist);
 
-        for (size_t song = 0; song < playlist.count; ++song) {
-            static const char* args[1];
-            args[0] = playlist.songs[song];
-            runCommand("mpv", args, ARRAY_SIZE(args));
+            for (size_t song = 0; song < playlist.count; ++song) {
+                static const char* args[1];
+                args[0] = playlist.songs[song];
+                runCommand("mpv", args, ARRAY_SIZE(args));
+            }
+
+            playlistDeinit(&playlist);
         }
-
-        playlistDeinit(&playlist);
-    }
+    } while (!arguments.dont_repeat);
 
     if (arguments.match) regfree(&regex);
 

@@ -17,6 +17,11 @@
 
 #define ARRAY_SIZE(array) (sizeof(array)/sizeof((array)[0]))
 
+// Logging message prefixes.
+#define INFO  "INFO: "
+#define WARN  "WARN: "
+#define ERROR "ERROR:"
+
 /*
  * Checks that all pointer parameters to a function are not NULL.
  * Works in GCC and clang.
@@ -45,7 +50,7 @@ NONNULL static char* cstrCopy(const char *const cstr) {
 
     char *const result = calloc(1 + strlen(cstr), 1);
     if (NULL == result) {
-        perror("ERROR: failed to allocate memory. Buy more RAM lol");
+        perror(ERROR" Failed to allocate memory. Buy more RAM lol");
         exit(1);
     }
     return strcpy(result, cstr);
@@ -64,7 +69,7 @@ NONNULL static void runCommand(
 
     const pid_t pid = fork();
     if (-1 == pid) {
-        perror("ERROR: Failed to spawn child process");
+        perror(ERROR" Failed to spawn child process");
         exit(1);
     }
 
@@ -87,7 +92,7 @@ NONNULL static void runCommand(
     argv[argc] = NULL;
 
     // Display program to run.
-    printf("INFO: Running command '%s", argv[0]);
+    printf(INFO" Running command '%s", argv[0]);
     for (size_t i = 1; i < argc; ++i) {
         printf(" %s", argv[i]);
     }
@@ -95,7 +100,7 @@ NONNULL static void runCommand(
 
     // Finally run program. Sheeeeesh.
     if (-1 == execvp(program, argv)) {
-        perror("ERROR: failed to run command");
+        perror(ERROR" Failed to run command");
         exit(1);
     }
 
@@ -191,7 +196,7 @@ NONNULL_ARGUMENTS(1,2) static size_t playlistAppendFromDirectory(
 
     DIR* dir = opendir(path); // Must closedir();
     if (NULL == dir) {
-        perror("ERROR: Unable to open directory");
+        perror(ERROR" Unable to open directory");
         exit(1);
     }
     while (true) {
@@ -358,7 +363,7 @@ NONNULL static ParsedArguments parseArguments(
                 break;
             }
             if (0 == strncmp("--", next, 2)) {
-                fprintf(stderr, "ERROR: Unknown option '%s'\n", next);
+                fprintf(stderr, ERROR" Unknown option '%s'\n", next);
                 exit(1);
             }
             if ('-' == next[0]) {
@@ -382,7 +387,7 @@ NONNULL static ParsedArguments parseArguments(
             if (NULL == next) {
                 fprintf(
                     stderr,
-                    "ERROR: option '--match' expects a regular expression as an argument\n"
+                    ERROR" Option '--match' expects a regular expression as an argument\n"
                 );
                 fprintf(
                     stderr,
@@ -414,7 +419,7 @@ int main(const int argc, const char *const *const argv) {
     // Intialize random number generator.
     struct timespec time;
     if (-1 == clock_gettime(CLOCK_MONOTONIC, &time)) {
-        perror("Failed to read from monotonic clock");
+        perror(ERROR" Failed to read from monotonic clock");
         exit(1);
     }
     srand((unsigned int)time.tv_sec);
@@ -422,7 +427,7 @@ int main(const int argc, const char *const *const argv) {
     const ParsedArguments arguments = parseArguments(argc, argv);
 
     if (0 == arguments.directory_count) {
-        fprintf(stderr, "ERROR: No directories specified\n");
+        fprintf(stderr, ERROR" No directories specified\n");
         fprintf(
             stderr,
             "Try '%s --help' for more information\n",
@@ -443,7 +448,7 @@ int main(const int argc, const char *const *const argv) {
             regerror(result, &regex, error, error_size);
             fprintf(
                 stderr,
-                "ERROR: Failed to compile match expression '%s': %s\n",
+                ERROR" Failed to compile match expression '%s': %s\n",
                 arguments.match, error
             );
             exit(1);
@@ -454,7 +459,7 @@ int main(const int argc, const char *const *const argv) {
 
     for (size_t i = 0; i < arguments.directory_count; ++i) {
         const char *const directory = arguments.directories[i];
-        printf("INFO: Loading music from directory '%s'...\n", directory);
+        printf(INFO" Loading music from directory '%s'...\n", directory);
         const size_t songs_loaded =
             playlistAppendFromDirectory(
                 &playlist,
@@ -463,7 +468,7 @@ int main(const int argc, const char *const *const argv) {
             );
 
         if (0 == songs_loaded) {
-            printf("WARN: Directory empty. Skipping...\n");
+            fprintf(stderr, WARN" Directory empty. Skipping...\n");
             continue;
         }
     }
@@ -473,10 +478,10 @@ int main(const int argc, const char *const *const argv) {
     if (!arguments.dont_shuffle) playlistShuffle(&playlist);
 
     if (0 == playlist.count) {
-        fprintf(stderr, "ERROR: No songs loaded\n");
+        fprintf(stderr, ERROR" No songs loaded\n");
         exit(1);
     } else {
-        printf("INFO: %zu songs loaded\n", playlist.count);
+        printf(INFO" %zu songs loaded\n", playlist.count);
     }
 
     do {

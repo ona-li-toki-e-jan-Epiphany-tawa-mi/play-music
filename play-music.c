@@ -160,9 +160,9 @@ NONNULL static Playlist playlistInitFromDirectory(const char *const path) {
         if (0 == strncmp("..", entry->d_name, 1)) continue;
         if (!isMusicFile(entry->d_name))        continue;
 
-        char* file = // Must free().
-            calloc(1 + strlen(path) + strlen(entry->d_name), 1);
-        strcat(strcat(file, path), entry->d_name);
+        char* file = // Must free(). 1 for null terminator, 1 for '/'.
+            calloc(1 + 1 + strlen(path) + strlen(entry->d_name), 1);
+        strcat(strcat(strcat(file, path), "/"), entry->d_name);
         playlistAppendOwnedSong(&playlist, file);
     }
     closedir(dir);

@@ -26,7 +26,7 @@
 #  define NONNULL
 #endif
 
-// Must free();
+// Deinitialize with free();
 NONNULL static char* cstrCopy(const char *const cstr) {
     assert(cstr);
 
@@ -38,7 +38,7 @@ NONNULL static char* cstrCopy(const char *const cstr) {
     return strcpy(result, cstr);
 }
 
-NONNULL static void run(
+NONNULL static void runCommand(
     const char *const        program,
     const char *const *const arguments,
     const size_t             arguments_length
@@ -82,7 +82,7 @@ NONNULL static void run(
 
     // Finally run program. Sheeeeesh.
     if (-1 == execvp(program, argv)) {
-        perror("TODO: do proper error message");
+        perror("ERROR: failed to run command");
         exit(1);
     }
 
@@ -92,10 +92,30 @@ NONNULL static void run(
     };
 }
 
+// TODO: support more extensions.
+static const char *const music_file_extensions[] = {
+    ".mp3"
+};
+
 NONNULL static bool isMusicFile(const char *const path) {
     assert(path);
-    // TODO.
-    return true;
+
+    size_t path_length = strlen(path);
+
+    const char* file_extension  = path + path_length - 1;
+    size_t      characters_left = path_length;
+    while (0 < characters_left) {
+        if ('.' == *file_extension || '/' == *file_extension) break;
+        --file_extension;
+        --characters_left;
+    }
+
+    for (size_t i = 0; i < ARRAY_SIZE(music_file_extensions); ++i) {
+        if (0 == strcmp(file_extension, music_file_extensions[i])) {
+            return true;
+        }
+    }
+    return false;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -137,8 +157,8 @@ NONNULL static void playlistAppendOwnedSong(
             realloc(playlist->songs, playlist->size * sizeof(const char*));
     }
 
-    playlist->songs[playlist->count]  = path;
-    playlist->count                  += 1;
+    playlist->songs[playlist->count] = path;
+    ++playlist->count;
 }
 
 // Deinitialize with playlistDeinit().
@@ -156,9 +176,7 @@ NONNULL static Playlist playlistInitFromDirectory(const char *const path) {
         const struct dirent *const entry = readdir(dir);
         if (NULL == entry) break;
 
-        if (0 == strncmp(".", entry->d_name, 1))  continue;
-        if (0 == strncmp("..", entry->d_name, 1)) continue;
-        if (!isMusicFile(entry->d_name))        continue;
+        if (!isMusicFile(entry->d_name)) continue;
 
         char* file = // Must free(). 1 for null terminator, 1 for '/'.
             calloc(1 + 1 + strlen(path) + strlen(entry->d_name), 1);
@@ -187,6 +205,10 @@ NONNULL static void playlistShuffle(Playlist *const playlist) {
 ////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////
 
+// TODO: add way to filter found songs by name.
+// TODO: add way to choose to not shuffle songs.
+// TODO: add configuration file.
+
 int main(int argc, char** argv) {
     struct timespec tp;
     if (-1 == clock_gettime(CLOCK_MONOTONIC, &tp)) {
@@ -203,7 +225,7 @@ int main(int argc, char** argv) {
         for (size_t song = 0; song < playlist.count; ++song) {
             static const char* args[1];
             args[0] = playlist.songs[song];
-            run("mpv", args, ARRAY_SIZE(args));
+            runCommand("mpv", args, ARRAY_SIZE(args));
         }
 
         playlistDeinit(&playlist);

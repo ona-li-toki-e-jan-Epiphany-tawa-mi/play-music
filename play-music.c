@@ -178,14 +178,16 @@ NONNULL static void playlistAppendOwnedSong(
 
 // If match is not NULL, only songs whose filename matches the regex will be
 // added to the playlist.
-// Deinitialize with playlistDeinit().
-NONNULL_ARGUMENTS(1) static Playlist playlistInitFromDirectory(
+// Returns the number of songs appended.
+NONNULL_ARGUMENTS(1,2) static size_t playlistAppendFromDirectory(
+    Playlist *const   playlist,
     const char *const path,
     regex_t *const    match
 ) {
+    assert(playlist);
     assert(path);
 
-    Playlist playlist = {0};
+    size_t songs_appended = 0;
 
     DIR* dir = opendir(path); // Must closedir();
     if (NULL == dir) {
@@ -205,12 +207,14 @@ NONNULL_ARGUMENTS(1) static Playlist playlistInitFromDirectory(
         char* file = // Must free(). 1 for null terminator, 1 for '/'.
             calloc(1 + 1 + strlen(path) + strlen(entry->d_name), 1);
         strcat(strcat(strcat(file, path), "/"), entry->d_name);
-        playlistAppendOwnedSong(&playlist, file);
+        playlistAppendOwnedSong(playlist, file);
+
+        ++songs_appended;
     }
     closedir(dir);
     dir = NULL;
 
-    return playlist;
+    return songs_appended;
 }
 
 NONNULL static void playlistShuffle(Playlist *const playlist) {
@@ -405,7 +409,6 @@ largument_parser_end:
 
 // TODO: add configuration file.
 // TODO: add way to specify arguments for mpv.
-// TODO: prevent endless loop if no songs were found.
 
 int main(const int argc, const char *const *const argv) {
     // Intialize random number generator.
@@ -417,6 +420,16 @@ int main(const int argc, const char *const *const argv) {
     srand((unsigned int)time.tv_sec);
 
     const ParsedArguments arguments = parseArguments(argc, argv);
+
+    if (0 == arguments.directory_count) {
+        fprintf(stderr, "ERROR: No directories specified\n");
+        fprintf(
+            stderr,
+            "Try '%s --help' for more information\n",
+            arguments.program_name
+        );
+        exit(1);
+    }
 
     regex_t regex;
     if (arguments.match) {
@@ -437,62 +450,44 @@ int main(const int argc, const char *const *const argv) {
         }
     }
 
-    if (0 == arguments.directory_count) {
-        fprintf(stderr, "ERROR: No directories specified\n");
-        fprintf(
-            stderr,
-            "Try '%s --help' for more information\n",
-            arguments.program_name
-        );
-        exit(1);
-    }
-
-    Playlist playlists[arguments.directory_count];
-    size_t   playlists_count = 0;
-    size_t   songs_loaded    = 0;
+    Playlist playlist = {0};
 
     for (size_t i = 0; i < arguments.directory_count; ++i) {
         const char *const directory = arguments.directories[i];
         printf("INFO: Loading music from directory '%s'...\n", directory);
-        Playlist playlist =
-            playlistInitFromDirectory(
+        const size_t songs_loaded =
+            playlistAppendFromDirectory(
+                &playlist,
                 directory,
                 arguments.match ? &regex : NULL
             );
 
-        if (0 == playlist.count) {
-            printf("WARN: Directory empty; skipping\n");
+        if (0 == songs_loaded) {
+            printf("WARN: Directory empty. Skipping...\n");
             continue;
         }
-
-        if (!arguments.dont_shuffle) playlistShuffle(&playlist);
-
-        playlists[playlists_count]  = playlist;
-        playlists_count            += 1;
-        songs_loaded               += playlist.count;
     }
 
     if (arguments.match) regfree(&regex);
 
-    if (0 == playlists_count) {
+    if (!arguments.dont_shuffle) playlistShuffle(&playlist);
+
+    if (0 == playlist.count) {
         fprintf(stderr, "ERROR: No songs loaded\n");
         exit(1);
     } else {
-        printf("INFO: %zu songs loaded\n", songs_loaded);
+        printf("INFO: %zu songs loaded\n", playlist.count);
     }
 
     do {
-        for (size_t i = 0; i < playlists_count; ++i) {
-            const Playlist *const playlist = &playlists[i];
-            for (size_t song = 0; song < playlist->count; ++song) {
-                static const char* args[1];
-                args[0] = playlist->songs[song];
-                runCommand("mpv", args, ARRAY_SIZE(args));
-            }
+        for (size_t song = 0; song < playlist.count; ++song) {
+            static const char* args[1];
+            args[0] = playlist.songs[song];
+            runCommand("mpv", args, ARRAY_SIZE(args));
         }
     } while (!arguments.dont_repeat);
 
-    for (size_t i = 0; i < playlists_count; ++i) playlistDeinit(&playlists[i]);
+    playlistDeinit(&playlist);
 
     return 0;
 }

@@ -6,6 +6,7 @@
 #include <string.h>
 // POSIX.
 #include <dirent.h>
+#include <regex.h>
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
@@ -24,6 +25,18 @@
 #  define NONNULL __attribute__ ((nonnull))
 #else // __GNUC__
 #  define NONNULL
+#endif
+
+/*
+ * Checks that the specified pointer parameters to a function are not NULL.
+ * Works in GCC and clang.
+ * ... - a list of the index (1-indexed) of the arguments that are to be
+ * checked.
+ */
+#ifdef __GNUC__
+#  define NONNULL_ARGUMENTS(...) __attribute__ ((nonnull (__VA_ARGS__)))
+#else // __GNUC__
+#  define NONNULL_ARGUMENTS(...)
 #endif
 
 // Deinitialize with free();
@@ -161,8 +174,13 @@ NONNULL static void playlistAppendOwnedSong(
     ++playlist->count;
 }
 
+// If match is not NULL, only songs whose filename matches the regex will be
+// added to the playlist.
 // Deinitialize with playlistDeinit().
-NONNULL static Playlist playlistInitFromDirectory(const char *const path) {
+NONNULL_ARGUMENTS(1) static Playlist playlistInitFromDirectory(
+    const char *const path,
+    regex_t *const    match
+) {
     assert(path);
 
     Playlist playlist = {0};
@@ -177,6 +195,10 @@ NONNULL static Playlist playlistInitFromDirectory(const char *const path) {
         if (NULL == entry) break;
 
         if (!isMusicFile(entry->d_name)) continue;
+
+        if (match && 0 != regexec(match, entry->d_name, 0, NULL, 0)) {
+            continue;
+        }
 
         char* file = // Must free(). 1 for null terminator, 1 for '/'.
             calloc(1 + 1 + strlen(path) + strlen(entry->d_name), 1);
@@ -229,6 +251,7 @@ NONNULL static const char* cstrSliceHead(CstrSlice *const slice) {
 typedef struct {
     const char* program_name;
     bool        dont_shuffle;
+    const char* match; // NULL for no matching.
 
     size_t      directory_count;
     const char* directories[PARSED_ARGUMENTS_MAX_DIRECTORIES];
@@ -261,7 +284,12 @@ NONNULL static void display_help(const ParsedArguments *const parsed_arguments) 
         "\n"
         "  --no-shuffle\n"
         "    Plays the songs in the order they appear in the directory\n"
-        "    instead of randomly shuffling them.\n",
+        "    instead of randomly shuffling them.\n"
+        "\n"
+        "  --match REGEX\n"
+        "    Only plays songs whose file name matches REGEX.\n"
+        "    REGEX is interpreted as an extended regular expression (see\n"
+        "    regex(3).)\n",
         parsed_arguments->program_name
     );
 }
@@ -269,7 +297,8 @@ NONNULL static void display_help(const ParsedArguments *const parsed_arguments) 
 // Zero initialized.
 typedef enum {
     ARGUMENT_PARSER_BASE = 0,
-    ARGUMENT_PARSER_END_OF_OPTIONS
+    ARGUMENT_PARSER_END_OF_OPTIONS,
+    ARGUMENT_PARSER_MATCH
 } ArgumentParserState;
 
 NONNULL static ParsedArguments parseArguments(
@@ -305,6 +334,10 @@ NONNULL static ParsedArguments parseArguments(
                 parsed_arguments.dont_shuffle = true;
                 break;
             }
+            if (0 == strcmp("--match", next)) {
+                state = ARGUMENT_PARSER_MATCH;
+                break;
+            }
             if (0 == strcmp("--", next)) {
                 state = ARGUMENT_PARSER_END_OF_OPTIONS;
                 break;
@@ -329,6 +362,25 @@ NONNULL static ParsedArguments parseArguments(
             break;
         }
 
+        case ARGUMENT_PARSER_MATCH: {
+            const char *const next = cstrSliceHead(&arguments);
+            if (NULL == next) {
+                fprintf(
+                    stderr,
+                    "ERROR: option '--match' expects a regular expression as an argument\n"
+                );
+                fprintf(
+                    stderr,
+                    "Try '%s --help' for more information\n",
+                    parsed_arguments.program_name
+                );
+                exit(1);
+            }
+            parsed_arguments.match = next;
+            state = ARGUMENT_PARSER_BASE;
+            break;
+        }
+
         default: {
             assert(false && "unreachable");
             exit(1);
@@ -340,7 +392,6 @@ largument_parser_end:
     return parsed_arguments;
 }
 
-// TODO: add way to filter found songs by name.
 // TODO: add configuration file.
 // TODO: add way to specify arguments for mpv.
 
@@ -355,6 +406,25 @@ int main(const int argc, const char *const *const argv) {
 
     const ParsedArguments arguments = parseArguments(argc, argv);
 
+    regex_t regex;
+    if (arguments.match) {
+        // TODO make case insensitive?
+        const int result = // Must regfree().
+            regcomp(&regex, arguments.match, REG_EXTENDED);
+
+        if (0 != result) {
+            const size_t error_size = regerror(result, &regex, NULL, 0);
+            char error[error_size];
+            regerror(result, &regex, error, error_size);
+            fprintf(
+                stderr,
+                "ERROR: Failed to compile match expression '%s': %s\n",
+                arguments.match, error
+            );
+            exit(1);
+        }
+    }
+
     if (0 == arguments.directory_count) {
         fprintf(stderr, "ERROR: No directories specified\n");
         fprintf(
@@ -362,12 +432,17 @@ int main(const int argc, const char *const *const argv) {
             "Try '%s --help' for more information\n",
             arguments.program_name
         );
+        exit(1);
     }
 
     for (size_t i = 0; i < arguments.directory_count; ++i) {
         const char *const directory = arguments.directories[i];
         printf("INFO: Loading music from directory '%s'\n", directory);
-        Playlist playlist = playlistInitFromDirectory(directory);
+        Playlist playlist =
+            playlistInitFromDirectory(
+                directory,
+                arguments.match ? &regex : NULL
+            );
 
         if (!arguments.dont_shuffle) playlistShuffle(&playlist);
 
@@ -379,6 +454,8 @@ int main(const int argc, const char *const *const argv) {
 
         playlistDeinit(&playlist);
     }
+
+    if (arguments.match) regfree(&regex);
 
     return 0;
 }

@@ -227,7 +227,8 @@ NONNULL static const char* cstrSliceHead(CstrSlice *const slice) {
 
 // Zero initialized.
 typedef struct {
-    bool dont_shuffle;
+    const char* program_name;
+    bool        dont_shuffle;
 
     size_t      directory_count;
     const char* directories[PARSED_ARGUMENTS_MAX_DIRECTORIES];
@@ -235,7 +236,7 @@ typedef struct {
 
 NONNULL static void parsedArgumentsAppendDirectory(
     ParsedArguments *const parsed_arguments,
-    const char *const directory
+    const char *const      directory
 ) {
     assert(parsed_arguments);
     assert(directory);
@@ -245,6 +246,26 @@ NONNULL static void parsedArgumentsAppendDirectory(
     ++parsed_arguments->directory_count;
 }
 
+NONNULL static void display_help(const ParsedArguments *const parsed_arguments) {
+    assert(parsed_arguments);
+
+    assert(parsed_arguments->program_name);
+    printf(
+        "Usages:\n"
+        "  %s [OPTION...] DIRECTORY...\n"
+        "\n"
+        "Plays the music files located in DIRECTORY with mpv.\n"
+        "\n"
+        "Options:\n"
+        "  --help    Display help and exit\n"
+        "\n"
+        "  --no-shuffle\n"
+        "    Plays the songs in the order they appear in the directory\n"
+        "    instead of randomly shuffling them.\n",
+        parsed_arguments->program_name
+    );
+}
+
 // Zero initialized.
 typedef enum {
     ARGUMENT_PARSER_BASE = 0,
@@ -252,7 +273,7 @@ typedef enum {
 } ArgumentParserState;
 
 NONNULL static ParsedArguments parseArguments(
-    const int argc,
+    const int                argc,
     const char *const *const argv
 ) {
     assert(argv);
@@ -267,7 +288,7 @@ NONNULL static ParsedArguments parseArguments(
     ParsedArguments     parsed_arguments = {0};
     ArgumentParserState state            = {0};
 
-    cstrSliceHead(&arguments); // Discards program name.
+    parsed_arguments.program_name = cstrSliceHead(&arguments);
 
     while (true) {
         switch (state) {
@@ -276,6 +297,10 @@ NONNULL static ParsedArguments parseArguments(
             if (NULL == next)      goto largument_parser_end;
             if (0 == strlen(next)) break;
 
+            if (0 == strcmp("--help", next)) {
+                display_help(&parsed_arguments);
+                exit(0);
+            }
             if (0 == strcmp("--no-shuffle", next)) {
                 parsed_arguments.dont_shuffle = true;
                 break;
@@ -316,8 +341,8 @@ largument_parser_end:
 }
 
 // TODO: add way to filter found songs by name.
-// TODO: add help, version, etc..
 // TODO: add configuration file.
+// TODO: add way to specify arguments for mpv.
 
 int main(const int argc, const char *const *const argv) {
     // Intialize random number generator.
@@ -328,7 +353,16 @@ int main(const int argc, const char *const *const argv) {
     }
     srand((unsigned int)time.tv_sec);
 
-    ParsedArguments arguments = parseArguments(argc, argv);
+    const ParsedArguments arguments = parseArguments(argc, argv);
+
+    if (0 == arguments.directory_count) {
+        fprintf(stderr, "ERROR: No directories specified\n");
+        fprintf(
+            stderr,
+            "Try '%s --help' for more information\n",
+            arguments.program_name
+        );
+    }
 
     for (size_t i = 0; i < arguments.directory_count; ++i) {
         const char *const directory = arguments.directories[i];

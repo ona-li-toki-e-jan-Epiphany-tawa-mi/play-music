@@ -74,11 +74,11 @@ NONNULL static void runCommand(
     argv[argc] = NULL;
 
     // Display program to run.
-    printf("+ %s", argv[0]);
+    printf("INFO: Running command '%s", argv[0]);
     for (size_t i = 1; i < argc; ++i) {
         printf(" %s", argv[i]);
     }
-    printf("\n");
+    printf("'\n");
 
     // Finally run program. Sheeeeesh.
     if (-1 == execvp(program, argv)) {
@@ -100,7 +100,7 @@ static const char *const music_file_extensions[] = {
 NONNULL static bool isMusicFile(const char *const path) {
     assert(path);
 
-    size_t path_length = strlen(path);
+    const size_t path_length = strlen(path);
 
     const char* file_extension  = path + path_length - 1;
     size_t      characters_left = path_length;
@@ -202,25 +202,140 @@ NONNULL static void playlistShuffle(Playlist *const playlist) {
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// CLI                                                                        //
 ////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////
+
+// Zero intialized.
+typedef struct {
+    size_t              count;
+    const char *const * data;
+} CstrSlice;
+
+// NULL if the cstr slice is empty.
+NONNULL static const char* cstrSliceHead(CstrSlice *const slice) {
+    assert(slice);
+
+    if (0 == slice->count) return NULL;
+
+    const char *const result = slice->data[0];
+    --slice->count;
+    ++slice->data;
+    return result;
+}
+
+#define PARSED_ARGUMENTS_MAX_DIRECTORIES 50
+
+// Zero initialized.
+typedef struct {
+    bool dont_shuffle;
+
+    size_t      directory_count;
+    const char* directories[PARSED_ARGUMENTS_MAX_DIRECTORIES];
+} ParsedArguments;
+
+NONNULL static void parsedArgumentsAppendDirectory(
+    ParsedArguments *const parsed_arguments,
+    const char *const directory
+) {
+    assert(parsed_arguments);
+    assert(directory);
+
+    assert(parsed_arguments->directory_count < PARSED_ARGUMENTS_MAX_DIRECTORIES);
+    parsed_arguments->directories[parsed_arguments->directory_count] = directory;
+    ++parsed_arguments->directory_count;
+}
+
+// Zero initialized.
+typedef enum {
+    ARGUMENT_PARSER_BASE = 0,
+    ARGUMENT_PARSER_END_OF_OPTIONS
+} ArgumentParserState;
+
+NONNULL static ParsedArguments parseArguments(
+    const int argc,
+    const char *const *const argv
+) {
+    assert(argv);
+#ifndef NDEBUG
+    for (int i = 0; i < argc; ++i) assert(argv[i]);
+#endif
+
+    CstrSlice arguments = {
+        .count = (size_t)argc,
+        .data  = argv
+    };
+    ParsedArguments     parsed_arguments = {0};
+    ArgumentParserState state            = {0};
+
+    cstrSliceHead(&arguments); // Discards program name.
+
+    while (true) {
+        switch (state) {
+        case ARGUMENT_PARSER_BASE: {
+            const char *const next = cstrSliceHead(&arguments);
+            if (NULL == next)      goto largument_parser_end;
+            if (0 == strlen(next)) break;
+
+            if (0 == strcmp("--no-shuffle", next)) {
+                parsed_arguments.dont_shuffle = true;
+                break;
+            }
+            if (0 == strcmp("--", next)) {
+                state = ARGUMENT_PARSER_END_OF_OPTIONS;
+                break;
+            }
+            if (0 == strncmp("--", next, 2)) {
+                fprintf(stderr, "ERROR: Unknown option '%s'\n", next);
+                exit(1);
+            }
+            if ('-' == next[0]) {
+                assert(false && "TODO: handle short options");
+                exit(1);
+            }
+
+            parsedArgumentsAppendDirectory(&parsed_arguments, next);
+            break;
+        }
+
+        case ARGUMENT_PARSER_END_OF_OPTIONS: {
+            const char *const next = cstrSliceHead(&arguments);
+            if (NULL == next) goto largument_parser_end;
+            parsedArgumentsAppendDirectory(&parsed_arguments, next);
+            break;
+        }
+
+        default: {
+            assert(false && "unreachable");
+            exit(1);
+        }
+        }
+    }
+largument_parser_end:
+
+    return parsed_arguments;
+}
 
 // TODO: add way to filter found songs by name.
-// TODO: add way to choose to not shuffle songs.
+// TODO: add help, version, etc..
 // TODO: add configuration file.
 
-int main(int argc, char** argv) {
-    struct timespec tp;
-    if (-1 == clock_gettime(CLOCK_MONOTONIC, &tp)) {
+int main(const int argc, const char *const *const argv) {
+    // Intialize random number generator.
+    struct timespec time;
+    if (-1 == clock_gettime(CLOCK_MONOTONIC, &time)) {
         perror("Failed to read from monotonic clock");
         exit(1);
     }
-    srand((unsigned int)tp.tv_sec);
+    srand((unsigned int)time.tv_sec);
 
-    // 1 - skip program name.
-    for (int directory = 1; directory < argc; ++directory) {
-        Playlist playlist = playlistInitFromDirectory(argv[directory]);
-        playlistShuffle(&playlist);
+    ParsedArguments arguments = parseArguments(argc, argv);
+
+    for (size_t i = 0; i < arguments.directory_count; ++i) {
+        const char *const directory = arguments.directories[i];
+        printf("INFO: Loading music from directory '%s'\n", directory);
+        Playlist playlist = playlistInitFromDirectory(directory);
+
+        if (!arguments.dont_shuffle) playlistShuffle(&playlist);
 
         for (size_t song = 0; song < playlist.count; ++song) {
             static const char* args[1];

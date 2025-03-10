@@ -468,9 +468,8 @@ int main(const int argc, const char *const *const argv) {
 
     regex_t regex;
     if (arguments.match) {
-        // TODO make case insensitive?
         const int result = // Must regfree().
-            regcomp(&regex, arguments.match, REG_EXTENDED);
+            regcomp(&regex, arguments.match, REG_EXTENDED | REG_ICASE);
 
         if (0 != result) {
             const size_t error_size = regerror(result, &regex, NULL, 0);

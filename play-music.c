@@ -10,6 +10,8 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+// From include/.
+#include <anal.h>
 
 ////////////////////////////////////////////////////////////////////////////////
 // Utilities                                                                  //
@@ -21,28 +23,6 @@
 #define INFO  "INFO: "
 #define WARN  "WARN: "
 #define ERROR "ERROR:"
-
-/*
- * Checks that all pointer parameters to a function are not NULL.
- * Works in GCC and clang.
- */
-#ifdef __GNUC__
-#  define NONNULL __attribute__ ((nonnull))
-#else // __GNUC__
-#  define NONNULL
-#endif
-
-/*
- * Checks that the specified pointer parameters to a function are not NULL.
- * Works in GCC and clang.
- * ... - a list of the index (1-indexed) of the arguments that are to be
- * checked.
- */
-#ifdef __GNUC__
-#  define NONNULL_ARGUMENTS(...) __attribute__ ((nonnull (__VA_ARGS__)))
-#else // __GNUC__
-#  define NONNULL_ARGUMENTS(...)
-#endif
 
 // Deinitialize with free();
 NONNULL static char* cstrCopy(const char *const cstr) {

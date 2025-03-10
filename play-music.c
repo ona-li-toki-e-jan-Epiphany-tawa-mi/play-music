@@ -261,33 +261,39 @@ NONNULL static void parsedArgumentsAppendDirectory(
     ++parsed_arguments->directory_count;
 }
 
-NONNULL static void display_help(const ParsedArguments *const parsed_arguments) {
-    assert(parsed_arguments);
+NONNULL static void printHelp(const char *const program) {
+    assert(program);
 
-    assert(parsed_arguments->program_name);
     printf(
         "Usages:\n"
-        "  %s [OPTION...] DIRECTORY...\n"
+        "  %s [OPTION...] [--] DIRECTORY...\n"
         "\n"
         "Plays the music files located in DIRECTORY with mpv.\n"
         "\n"
         "Options:\n"
-        "  --help    Display help and exit\n"
+        "  -h, --help    Display help and exit.\n"
+        "\n"
+        "  -m, --match REGEX\n"
+        "    Only plays songs whose file name matches REGEX.\n"
+        "    REGEX is interpreted as an extended regular expression (see\n"
+        "    regex(3).)\n"
         "\n"
         "  --no-shuffle\n"
         "    Plays the songs in the order they appear in the directory\n"
         "    instead of randomly shuffling them.\n"
         "\n"
-        "  --match REGEX\n"
-        "    Only plays songs whose file name matches REGEX.\n"
-        "    REGEX is interpreted as an extended regular expression (see\n"
-        "    regex(3).)\n"
-        "\n"
         "  --no-repeat\n"
         "    Exits once all the songs have been played instead of repeating\n"
         "    them in an endless loop.\n",
-        parsed_arguments->program_name
+        program
     );
+}
+
+NONNULL static void printShortHelp(FILE *const to, const char *const program) {
+    assert(to);
+    assert(program);
+
+    fprintf(to, "Try '%s -h' for more information\n", program);
 }
 
 // Zero initialized.
@@ -296,6 +302,57 @@ typedef enum {
     ARGUMENT_PARSER_END_OF_OPTIONS,
     ARGUMENT_PARSER_MATCH
 } ArgumentParserState;
+
+// options is the list of short options without the preceeding '-'.
+NONNULL static void parseShortOptions(
+    CstrSlice *const       arguments,
+    ParsedArguments *const parsed_arguments,
+    const char *const      options
+) {
+    assert(arguments);
+    assert(parsed_arguments);
+    assert(options);
+
+    const char* next = options;
+    while ('\0' != *next) {
+        switch (*next) {
+        case 'h': {
+            printHelp(parsed_arguments->program_name);
+            exit(0);
+        }
+
+        case 'm': {
+            ++next;
+            // If there is leftover options, it is the argument to -m.
+            if ('\0' != *next) {
+                parsed_arguments->match = next;
+                return;
+            }
+            // Else, the next argument is.
+            const char *const next_argument = cstrSliceHead(arguments);
+            printf("got: %s\n", next_argument);
+            if (NULL == next_argument) {
+                fprintf(
+                    stderr,
+                    ERROR" Option '-m' expects a regular expression as an argument\n"
+                );
+                printShortHelp(stderr, parsed_arguments->program_name);
+                exit(1);
+            }
+            parsed_arguments->match = next_argument;
+            return;
+        }
+
+        default: {
+            fprintf(stderr, ERROR" Unknown option '-%c'\n", *next);
+            printShortHelp(stderr, parsed_arguments->program_name);
+            exit(1);
+        }
+        }
+
+        ++next;
+    }
+}
 
 NONNULL static ParsedArguments parseArguments(
     const int                argc,
@@ -323,7 +380,7 @@ NONNULL static ParsedArguments parseArguments(
             if (0 == strlen(next)) break;
 
             if (0 == strcmp("--help", next)) {
-                display_help(&parsed_arguments);
+                printHelp(parsed_arguments.program_name);
                 exit(0);
             }
             if (0 == strcmp("--no-shuffle", next)) {
@@ -347,8 +404,9 @@ NONNULL static ParsedArguments parseArguments(
                 exit(1);
             }
             if ('-' == next[0]) {
-                assert(false && "TODO: handle short options");
-                exit(1);
+                // + 1 to skip '-'.
+                parseShortOptions(&arguments, &parsed_arguments, 1 + next);
+                break;
             }
 
             parsedArgumentsAppendDirectory(&parsed_arguments, next);
@@ -369,11 +427,7 @@ NONNULL static ParsedArguments parseArguments(
                     stderr,
                     ERROR" Option '--match' expects a regular expression as an argument\n"
                 );
-                fprintf(
-                    stderr,
-                    "Try '%s --help' for more information\n",
-                    parsed_arguments.program_name
-                );
+                printShortHelp(stderr, parsed_arguments.program_name);
                 exit(1);
             }
             parsed_arguments.match = next;
@@ -408,11 +462,7 @@ int main(const int argc, const char *const *const argv) {
 
     if (0 == arguments.directory_count) {
         fprintf(stderr, ERROR" No directories specified\n");
-        fprintf(
-            stderr,
-            "Try '%s --help' for more information\n",
-            arguments.program_name
-        );
+        printShortHelp(stderr, arguments.program_name);
         exit(1);
     }
 

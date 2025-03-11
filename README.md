@@ -9,7 +9,7 @@ play-music in the future.
 
 Dependencies
 
-- A C compiler supporting c11. Clang or GCC recommended.
+- A C compiler supporting c11. Clang, GCC, or Zig recommended.
 - POSIX system.
 - mpv - [https://mpv.io/](https://mpv.io/)
 

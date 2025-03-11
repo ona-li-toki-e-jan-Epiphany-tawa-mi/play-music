@@ -24,7 +24,7 @@
 #define WARN  "WARN: "
 #define ERROR "ERROR:"
 
-// Deinitialize with free();
+// Deinitialize with free().
 NONNULL static char* cstrCopy(const char *const cstr) {
     assert(cstr);
 
@@ -36,6 +36,7 @@ NONNULL static char* cstrCopy(const char *const cstr) {
     return strcpy(result, cstr);
 }
 
+// TODO: check exit status.
 NONNULL static void runCommand(
     const char *const        program,
     const char *const *const arguments,
@@ -447,7 +448,8 @@ largument_parser_end:
 }
 
 // TODO: add configuration file.
-// TODO: add way to specify arguments for mpv.
+// TODO: add way to specify arguments for mpv?
+// TODO: add way to override supported file extensions.
 
 int main(const int argc, const char *const *const argv) {
     // Intialize random number generator.

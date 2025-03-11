@@ -12,7 +12,7 @@
         (system: f { pkgs = import nixpkgs { inherit system; }; });
     in {
       devShells = forAllSystems ({ pkgs }: {
-        default = with pkgs; mkShell { packages = [ astyle ]; };
+        default = with pkgs; mkShell { packages = [ astyle mpv ]; };
       });
     };
 }

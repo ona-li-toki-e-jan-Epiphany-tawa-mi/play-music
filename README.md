@@ -34,3 +34,8 @@ EXTRA_CFLAGS='-O3 -DNDEBUG' ./build.sh
 ```
 
 The executable will be named `play-music`.
+
+## Installation
+
+You can install it with Nix from my personal package repository
+[https://paltepuk.xyz/cgit/epitaphpkgs.git/about](https://paltepuk.xyz/cgit/epitaphpkgs.git/about).

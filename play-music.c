@@ -349,7 +349,6 @@ NONNULL static void parseShortOptions(
             }
             // Else, the next argument is.
             const char *const next_argument = cstrSliceHead(arguments);
-            printf("got: %s\n", next_argument);
             if (NULL == next_argument) {
                 fprintf(
                     stderr,

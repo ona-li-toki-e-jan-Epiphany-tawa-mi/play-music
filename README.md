@@ -21,8 +21,8 @@ Then, run the following command(s):
 ./build.sh
 ```
 
-To enable optimizations, you can add one or more of the following arguments to
-the EXTRA_CFLAGS enviroment variable:
+To enable optimizations, you can append on or more of the following arguments to
+the build command:
 
 - `-O3` - general optimizations.
 - `-DNDEBUG` - disable safety checks. Performance > safety.
@@ -30,7 +30,7 @@ the EXTRA_CFLAGS enviroment variable:
 I.e.:
 
 ```sh
-EXTRA_CFLAGS='-O3 -DNDEBUG' ./build.sh
+./build.sh -O3 -DNDEBUG
 ```
 
 The executable will be named `play-music`.

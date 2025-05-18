@@ -1,4 +1,5 @@
 const std = @import("std");
+const fs = std.fs;
 const io = std.io;
 const mem = std.mem;
 const process = std.process;
@@ -9,6 +10,7 @@ const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const BufferedWriter = std.io.BufferedWriter;
 const File = std.fs.File;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
+const StaticStringMap = std.StaticStringMap;
 
 const BufferedFileWriter = BufferedWriter(4096, File.Writer);
 
@@ -42,11 +44,11 @@ pub fn main() !void {
     };
     defer ParsedArguments.deinit();
 
-    // TODO: remove debug statements.
+    var playlist = Playlist.init(allocator);
+    defer playlist.deinit();
     for (ParsedArguments.directories.items) |directory| {
-        try stdout_writer.writer().print("Directory: {s}\n", .{directory});
+        try playlist.appendFromDirectory(directory);
     }
-    try stdout_writer.writer().print("Match: {?s}\n", .{ParsedArguments.match});
 }
 
 fn printHelp(to: *BufferedFileWriter) !void {
@@ -215,3 +217,59 @@ const ParsedArguments = struct {
         }
     }
 };
+
+////////////////////////////////////////////////////////////////////////////////
+// Playlist                                                                   //
+////////////////////////////////////////////////////////////////////////////////
+
+const Playlist = struct {
+    const Self = @This();
+
+    allocator: Allocator,
+    song_files: ArrayListUnmanaged([]u8),
+
+    /// Deinitialize with `deinit`.
+    fn init(allocator: Allocator) Self {
+        return .{
+            .allocator = allocator,
+            .song_files = ArrayListUnmanaged([]u8).empty,
+        };
+    }
+
+    fn deinit(self: *Self) void {
+        for (self.song_files.items) |file| self.allocator.free(file);
+        self.song_files.deinit(self.allocator);
+    }
+
+    // TODO: add regex matching.
+    fn appendFromDirectory(self: *Self, path: []const u8) !void {
+        var directory = try fs.cwd().openDir(path, .{
+            .iterate = true,
+        });
+        defer directory.close();
+
+        var iterator = directory.iterate();
+        while (try iterator.next()) |entry| {
+            if (!isMusicFile(entry.name)) continue;
+
+            const file = try fs.path.join(
+                self.allocator,
+                &.{ path, entry.name },
+            );
+            errdefer self.allocator.free(file);
+            try self.song_files.append(self.allocator, file);
+        }
+    }
+};
+
+const music_file_extensions = StaticStringMap(void).initComptime(.{
+    .{ ".flac", {} },
+    .{ ".mp3", {} },
+    .{ ".ogg", {} },
+    .{ ".wav", {} },
+});
+
+fn isMusicFile(path: []const u8) bool {
+    const extension = fs.path.extension(path);
+    return music_file_extensions.has(extension);
+}

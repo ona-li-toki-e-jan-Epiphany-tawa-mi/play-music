@@ -453,16 +453,33 @@ const SoundSystem = struct {
         ).empty;
         errdefer formats_play_strategies_map.deinit(allocator);
 
-        if (isProgramAvailable(allocator, &.{"mpv"})) {
-            try formats_play_strategies_map.put(allocator, .flac, mpvPlayStrategy);
-            try formats_play_strategies_map.put(allocator, .mp3, mpvPlayStrategy);
-            try formats_play_strategies_map.put(allocator, .vorbis, mpvPlayStrategy);
-            try formats_play_strategies_map.put(allocator, .wav, mpvPlayStrategy);
-        } else if (isProgramAvailable(allocator, &.{ "cvlc", "-h" })) {
-            try formats_play_strategies_map.put(allocator, .flac, cvlcPlayStrategy);
-            try formats_play_strategies_map.put(allocator, .mp3, cvlcPlayStrategy);
-            try formats_play_strategies_map.put(allocator, .vorbis, cvlcPlayStrategy);
-            try formats_play_strategies_map.put(allocator, .wav, cvlcPlayStrategy);
+        // Per-format strategy selection.
+        inline for (@typeInfo(FileFormat).@"enum".fields) |field| blk: {
+            const format: FileFormat = @enumFromInt(field.value);
+
+            switch (format) {
+                .flac => {},
+                .mp3 => {},
+                .vorbis => {},
+                .wav => {},
+            }
+
+            if (isProgramAvailable(allocator, &.{"mpv"})) {
+                try formats_play_strategies_map.put(
+                    allocator,
+                    format,
+                    mpvPlayStrategy,
+                );
+                break :blk;
+            }
+            if (isProgramAvailable(allocator, &.{ "cvlc", "-h" })) {
+                try formats_play_strategies_map.put(
+                    allocator,
+                    format,
+                    cvlcPlayStrategy,
+                );
+                break :blk;
+            }
         }
 
         initialized = true;

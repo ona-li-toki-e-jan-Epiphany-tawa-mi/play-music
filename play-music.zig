@@ -3,16 +3,20 @@ const fs = std.fs;
 const io = std.io;
 const mem = std.mem;
 const process = std.process;
+const time = std.time;
 
 const Allocator = std.mem.Allocator;
 const ArgIterator = std.process.ArgIterator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
 const BufferedWriter = std.io.BufferedWriter;
+const Child = std.process.Child;
 const File = std.fs.File;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
+const Random = std.Random;
 const StaticStringMap = std.StaticStringMap;
 
 const BufferedFileWriter = BufferedWriter(4096, File.Writer);
+const RandomPrng = Random.DefaultPrng;
 
 fn bufferedFileWriter(writer: File.Writer) BufferedFileWriter {
     return .{ .unbuffered_writer = writer };
@@ -23,21 +27,22 @@ fn bufferedFileWriter(writer: File.Writer) BufferedFileWriter {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub fn main() !void {
-    var stdout_writer = bufferedFileWriter(io.getStdOut().writer());
-    defer stdout_writer.flush() catch {};
-    // const stdout = stdout_writer.writer();
-    var stderr_writer = bufferedFileWriter(io.getStdErr().writer());
-    defer stderr_writer.flush() catch {};
-    //const stderr = stderr_writer.writer();
+    var stdout = bufferedFileWriter(io.getStdOut().writer());
+    defer stdout.flush() catch {};
+    var stderr = bufferedFileWriter(io.getStdErr().writer());
+    defer stderr.flush() catch {};
 
     var gpa = GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
 
+    var prng = RandomPrng.init(@as(u64, @bitCast(time.milliTimestamp())));
+    const random = prng.random();
+
     ParsedArguments.init(
         allocator,
-        &stderr_writer,
-        &stdout_writer,
+        &stderr,
+        &stdout,
     ) catch |err| switch (err) {
         error.ExitSuccess => return,
         else => return err,
@@ -48,6 +53,22 @@ pub fn main() !void {
     defer playlist.deinit();
     for (ParsedArguments.directories.items) |directory| {
         try playlist.appendFromDirectory(directory);
+    }
+    if (ParsedArguments.shuffle) playlist.shuffle(random);
+
+    try stdout.writer().print(
+        "INFO: {d} songs loaded\n",
+        .{playlist.song_files.items.len},
+    );
+
+    while (true) {
+        for (playlist.song_files.items) |file| {
+            try stdout.writer().print("INFO: Now playing: {s}\n", .{file});
+            try stdout.flush();
+            try playFile(allocator, file);
+        }
+
+        if (!ParsedArguments.repeat) break;
     }
 }
 
@@ -260,6 +281,10 @@ const Playlist = struct {
             try self.song_files.append(self.allocator, file);
         }
     }
+
+    fn shuffle(self: *Self, random: Random) void {
+        random.shuffle([]u8, self.song_files.items);
+    }
 };
 
 const music_file_extensions = StaticStringMap(void).initComptime(.{
@@ -272,4 +297,19 @@ const music_file_extensions = StaticStringMap(void).initComptime(.{
 fn isMusicFile(path: []const u8) bool {
     const extension = fs.path.extension(path);
     return music_file_extensions.has(extension);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// TODO
+////////////////////////////////////////////////////////////////////////////////
+
+// TODO: figure out way to test and dynamically select play methods.
+// fn initSoundsystem() void {}
+
+fn playFile(allocator: Allocator, path: []const u8) !void {
+    const arguments = [_][]const u8{ "mpv", "--no-audio-display", path };
+    // const arguments = [_][]const u8{ "cvlc", path };
+    var child = Child.init(&arguments, allocator);
+    // TODO: handle exit code.
+    _ = try child.spawnAndWait();
 }

@@ -75,14 +75,14 @@ pub fn main() !void {
 
     try stdout.writer().print(
         "INFO: {d} songs loaded\n",
-        .{playlist.song_files.items.len},
+        .{playlist.songs.items.len},
     );
 
     while (true) {
-        for (playlist.song_files.items) |file| {
-            try stdout.writer().print("INFO: Now playing: {s}\n", .{file});
+        for (playlist.songs.items) |song| {
+            try stdout.writer().print("INFO: Now playing: {s}\n", .{song.file_path});
             try stdout.flush();
-            try playFile(allocator, file);
+            try playSong(allocator, song);
         }
 
         if (!ParsedArguments.repeat) break;
@@ -257,26 +257,72 @@ const ParsedArguments = struct {
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-// Playlist                                                                   //
+// Songs and Playlists                                                        //
 ////////////////////////////////////////////////////////////////////////////////
+
+const FileFormat = enum {
+    const Self = @This();
+
+    flac,
+    mp3,
+    vorbis,
+    wav,
+
+    const extensions_formats_map = StaticStringMap(FileFormat).initComptime(.{
+        .{ ".flac", .flac },
+        .{ ".mp3", .mp3 },
+        .{ ".ogg", .vorbis },
+        .{ ".wav", .wav },
+    });
+
+    // TODO: mimetypes?
+    fn formatFromFile(path: []const u8) ?Self {
+        return extensions_formats_map.get(fs.path.extension(path));
+    }
+};
+
+const Song = struct {
+    const Self = @This();
+
+    file_path: []u8,
+    format: FileFormat,
+
+    /// Takes ownership of passed in `path`.
+    fn initFromOwnedPath(path: []u8) !Self {
+        if (FileFormat.formatFromFile(path)) |format| {
+            return .{
+                .file_path = path,
+                .format = format,
+            };
+        } else {
+            return error.NotAnAudioFile;
+        }
+    }
+
+    fn deinit(self: *Self, allocator: Allocator) void {
+        allocator.free(self.file_path);
+        self.* = undefined;
+    }
+};
 
 const Playlist = struct {
     const Self = @This();
 
     allocator: Allocator,
-    song_files: ArrayListUnmanaged([]u8),
+    songs: ArrayListUnmanaged(Song),
 
     /// Deinitialize with `deinit`.
     fn init(allocator: Allocator) Self {
         return .{
             .allocator = allocator,
-            .song_files = ArrayListUnmanaged([]u8).empty,
+            .songs = ArrayListUnmanaged(Song).empty,
         };
     }
 
     fn deinit(self: *Self) void {
-        for (self.song_files.items) |file| self.allocator.free(file);
-        self.song_files.deinit(self.allocator);
+        for (self.songs.items) |*song| song.deinit(self.allocator);
+        self.songs.deinit(self.allocator);
+        self.* = undefined;
     }
 
     // TODO: add regex matching.
@@ -288,33 +334,26 @@ const Playlist = struct {
 
         var iterator = directory.iterate();
         while (try iterator.next()) |entry| {
-            if (!isMusicFile(entry.name)) continue;
-
-            const file = try fs.path.join(
-                self.allocator,
-                &.{ path, entry.name },
-            );
-            errdefer self.allocator.free(file);
-            try self.song_files.append(self.allocator, file);
+            var song = blk: {
+                const file = try fs.path.join(
+                    self.allocator,
+                    &.{ path, entry.name },
+                );
+                errdefer self.allocator.free(file);
+                break :blk Song.initFromOwnedPath(file) catch |err| switch (err) {
+                    error.NotAnAudioFile => continue,
+                    else => return err,
+                };
+            };
+            errdefer song.deinit(self.allocator);
+            try self.songs.append(self.allocator, song);
         }
     }
 
     fn shuffle(self: *Self, random: Random) void {
-        random.shuffle([]u8, self.song_files.items);
+        random.shuffle(Song, self.songs.items);
     }
 };
-
-const music_file_extensions = StaticStringMap(void).initComptime(.{
-    .{ ".flac", {} },
-    .{ ".mp3", {} },
-    .{ ".ogg", {} },
-    .{ ".wav", {} },
-});
-
-fn isMusicFile(path: []const u8) bool {
-    const extension = fs.path.extension(path);
-    return music_file_extensions.has(extension);
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 // TODO
@@ -323,10 +362,18 @@ fn isMusicFile(path: []const u8) bool {
 // TODO: figure out way to test and dynamically select play methods.
 // fn initSoundsystem() void {}
 
-fn playFile(allocator: Allocator, path: []const u8) !void {
-    const arguments = [_][]const u8{ "mpv", "--no-audio-display", path };
-    // const arguments = [_][]const u8{ "cvlc", path };
-    var child = Child.init(&arguments, allocator);
-    // TODO: handle exit code.
-    _ = try child.spawnAndWait();
+fn playSong(allocator: Allocator, song: Song) !void {
+    switch (song.format) {
+        .flac, .mp3, .vorbis, .wav => {
+            const arguments = [_][]const u8{
+                "mpv",
+                "--no-audio-display",
+                song.file_path,
+            };
+            // const arguments = [_][]const u8{ "cvlc", path };
+            var child = Child.init(&arguments, allocator);
+            // TODO: handle exit code.
+            _ = try child.spawnAndWait();
+        },
+    }
 }

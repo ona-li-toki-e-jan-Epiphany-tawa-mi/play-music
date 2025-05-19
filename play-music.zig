@@ -122,7 +122,9 @@ fn printShortHelp(to: *BufferedFileWriter) !void {
 }
 
 const ParsedArguments = struct {
+    var initialized = false;
     var allocator: Allocator = undefined;
+
     var program_name: []const u8 = undefined;
     var directories: ArrayListUnmanaged([]u8) = undefined;
     var match: ?[]u8 = undefined;
@@ -135,6 +137,8 @@ const ParsedArguments = struct {
         stderr: *BufferedFileWriter,
         stdout: *BufferedFileWriter,
     ) !void {
+        debug.assert(!initialized);
+
         allocator = allocatorr;
         directories = ArrayListUnmanaged([]u8).empty;
         match = null;
@@ -143,12 +147,18 @@ const ParsedArguments = struct {
         errdefer deinit();
 
         try parseArguments(stderr, stdout);
+
+        initialized = true;
     }
 
     fn deinit() void {
+        debug.assert(initialized);
+
         for (directories.items) |directory| allocator.free(directory);
         directories.deinit(allocator);
         if (match) |pattern| allocator.free(pattern);
+
+        initialized = false;
     }
 
     fn appendDirectory(path: []const u8) !void {

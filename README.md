@@ -9,8 +9,7 @@ play-music in the future.
 
 Dependencies
 
-- A C compiler supporting c11. Clang, GCC, or Zig recommended.
-- POSIX system.
+- zig 0.14.0 (other versions may work) - [https://ziglang.org](https://ziglang.org/).
 - mpv - [https://mpv.io/](https://mpv.io/)
 
 There is a `flake.nix` you can use with `nix develop` to get them.
@@ -18,19 +17,19 @@ There is a `flake.nix` you can use with `nix develop` to get them.
 Then, run the following command(s):
 
 ```shell
-./build.sh
+zig build-exe play-music.zig
 ```
 
-To enable optimizations, you can append on or more of the following arguments to
-the build command:
+You can append the following arguments for different optimizations:
 
-- `-O3` - general optimizations.
-- `-DNDEBUG` - disable safety checks. Performance > safety.
+- `-O ReleaseSafe` - Faster.
+- `-O ReleaseFast` - Fasterer, no safety checks.
+- `-O ReleaseSmall` - Faster, smaller binaries, no safety checks.
 
 I.e.:
 
 ```sh
-./build.sh -O3 -DNDEBUG
+zig build-exe play-music.zig -O ReleaseFast
 ```
 
 The executable will be named `play-music`.

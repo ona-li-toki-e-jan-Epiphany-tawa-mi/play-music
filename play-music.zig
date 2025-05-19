@@ -16,6 +16,7 @@
 //! play-music. If not, see <https://www.gnu.org/licenses/>.
 
 const std = @import("std");
+const debug = std.debug;
 const fs = std.fs;
 const io = std.io;
 const mem = std.mem;
@@ -25,6 +26,7 @@ const time = std.time;
 const Allocator = std.mem.Allocator;
 const ArgIterator = std.process.ArgIterator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
+const AutoHashMapUnmanaged = std.hash_map.AutoHashMapUnmanaged;
 const BufferedWriter = std.io.BufferedWriter;
 const Child = std.process.Child;
 const File = std.fs.File;
@@ -55,6 +57,9 @@ pub fn main() !void {
 
     var prng = RandomPrng.init(@as(u64, @bitCast(time.milliTimestamp())));
     const random = prng.random();
+
+    try SoundSystem.init(allocator);
+    defer SoundSystem.deinit();
 
     ParsedArguments.init(
         allocator,
@@ -93,7 +98,7 @@ pub fn main() !void {
         for (playlist.songs.items) |song| {
             try stdout.writer().print("INFO: Now playing: {s}\n", .{song.file_path});
             try stdout.flush();
-            try playSong(allocator, song);
+            try SoundSystem.playSong(song);
         }
 
         if (!ParsedArguments.repeat) break;
@@ -105,7 +110,11 @@ fn printHelp(to: *BufferedFileWriter) !void {
         \\Usages:
         \\  {s} [OPTION...] [--] DIRECTORY...
         \\
-        \\Plays the music files located in DIRECTORY with mpv.
+        \\Plays the music files located in DIRECTORY.
+        \\
+        \\ Available play strategies (in order of priority):
+        \\   1. With mpv if present.
+        \\   2. With cvlc if present.
         \\
         \\Options:
         \\  -h, --help    Display help and exit.
@@ -157,9 +166,8 @@ const ParsedArguments = struct {
         repeat = true;
         errdefer deinit();
 
-        try parseArguments(stderr, stdout);
-
         initialized = true;
+        try parseArguments(stderr, stdout);
     }
 
     fn deinit() void {
@@ -173,12 +181,16 @@ const ParsedArguments = struct {
     }
 
     fn appendDirectory(path: []const u8) !void {
+        debug.assert(initialized);
+
         const path_copy = try allocator.dupe(u8, path);
         errdefer allocator.free(path_copy);
         try directories.append(allocator, path_copy);
     }
 
     fn setMatch(pattern: []const u8) !void {
+        debug.assert(initialized);
+
         const pattern_copy = try allocator.dupe(u8, pattern);
         if (match) |old_pattern| allocator.free(old_pattern);
         match = pattern_copy;
@@ -188,6 +200,8 @@ const ParsedArguments = struct {
         stderr: *BufferedFileWriter,
         stdout: *BufferedFileWriter,
     ) !void {
+        debug.assert(initialized);
+
         var arguments = try process.argsWithAllocator(allocator);
         defer arguments.deinit();
 
@@ -240,6 +254,8 @@ const ParsedArguments = struct {
         options: []const u8, // Without the trailing `-`.
         remaining_arguments: *ArgIterator,
     ) !void {
+        debug.assert(initialized);
+
         for (0..options.len) |i| {
             const option = options[i];
 
@@ -383,21 +399,116 @@ const Playlist = struct {
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-// TODO
+// Sound System                                                               //
 ////////////////////////////////////////////////////////////////////////////////
 
-// TODO: figure out way to test and dynamically select play methods.
-// fn initSoundsystem() void {}
+// TODO: develop ability to load audio from files and pass to system's sound servers/other.
+// TODO: check if all formats in playlist can be played before playing any.
 
-fn playSong(allocator: Allocator, song: Song) !void {
+const SoundSystem = struct {
+    var initialized = false;
+    var allocator: Allocator = undefined;
+
+    var formats_play_strategies_map: AutoHashMapUnmanaged(
+        FileFormat,
+        PlayStrategy,
+    ) = undefined;
+
+    /// Deinitialize with `deinit`.
+    fn init(allocatorr: Allocator) !void {
+        debug.assert(!initialized);
+
+        allocator = allocatorr;
+        formats_play_strategies_map = AutoHashMapUnmanaged(
+            FileFormat,
+            PlayStrategy,
+        ).empty;
+        errdefer formats_play_strategies_map.deinit(allocator);
+
+        if (isProgramAvailable(allocator, &.{"mpv"})) {
+            try formats_play_strategies_map.put(allocator, .flac, mpvPlayStrategy);
+            try formats_play_strategies_map.put(allocator, .mp3, mpvPlayStrategy);
+            try formats_play_strategies_map.put(allocator, .vorbis, mpvPlayStrategy);
+            try formats_play_strategies_map.put(allocator, .wav, mpvPlayStrategy);
+        } else if (isProgramAvailable(allocator, &.{ "cvlc", "-h" })) {
+            try formats_play_strategies_map.put(allocator, .flac, cvlcPlayStrategy);
+            try formats_play_strategies_map.put(allocator, .mp3, cvlcPlayStrategy);
+            try formats_play_strategies_map.put(allocator, .vorbis, cvlcPlayStrategy);
+            try formats_play_strategies_map.put(allocator, .wav, cvlcPlayStrategy);
+        }
+
+        initialized = true;
+    }
+
+    fn deinit() void {
+        debug.assert(initialized);
+
+        formats_play_strategies_map.deinit(allocator);
+
+        initialized = false;
+    }
+
+    fn playSong(song: Song) !void {
+        debug.assert(initialized);
+
+        if (formats_play_strategies_map.get(song.format)) |strategy| {
+            try strategy(allocator, song);
+        } else {
+            return error.UnplayableFormat;
+        }
+    }
+};
+
+// TODO: find a better way to determine if a program is available.
+/// Must have program as index 0 in `arguments`, and program should exit
+/// immediately with supplied `arguments`.
+fn isProgramAvailable(
+    allocator: Allocator,
+    arguments: []const []const u8,
+) bool {
+    var child = Child.init(arguments, allocator);
+    // Blackholes program output.
+    child.stdin_behavior = .Ignore;
+    child.stdout_behavior = .Ignore;
+    child.stderr_behavior = .Ignore;
+
+    // If errored out, the program is *probably* not available.
+    _ = child.spawnAndWait() catch return false;
+    return true;
+}
+
+const PlayStrategy = *const fn (
+    allocator: Allocator,
+    song: Song,
+) PlayStrategyError!void;
+
+const PlayStrategyError = Child.SpawnError;
+
+fn mpvPlayStrategy(allocator: Allocator, song: Song) PlayStrategyError!void {
     switch (song.format) {
         .flac, .mp3, .vorbis, .wav => {
             const arguments = [_][]const u8{
                 "mpv",
-                "--no-audio-display",
+                "--no-audio-display", // Prevents display of cover art.
                 song.file_path,
             };
-            // const arguments = [_][]const u8{ "cvlc", path };
+
+            var child = Child.init(&arguments, allocator);
+            // TODO: handle exit code.
+            _ = try child.spawnAndWait();
+        },
+    }
+}
+
+fn cvlcPlayStrategy(allocator: Allocator, song: Song) PlayStrategyError!void {
+    switch (song.format) {
+        .flac, .mp3, .vorbis, .wav => {
+            const arguments = [_][]const u8{
+                "cvlc",
+                "--play-and-exit", // Makes exit after the song ends.
+                song.file_path,
+            };
+
             var child = Child.init(&arguments, allocator);
             // TODO: handle exit code.
             _ = try child.spawnAndWait();

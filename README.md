@@ -2,15 +2,24 @@
 
 A simple command-line music player.
 
-Currently depends on mpv to play the songs, but this will be integrated into
-play-music in the future.
+Currently depends on other programs to play the songs, but this will be
+integrated into play-music in the future.
+
+Available play strategies (in order of priority):
+
+1. With mpv if present.
+2. With cvlc if present.
 
 ## How to Build
 
-Dependencies
+Dependencies:
 
 - zig 0.14.0 (other versions may work) - [https://ziglang.org](https://ziglang.org/).
+
+Also requires ONE of the following as a runtime depedency:
+
 - mpv - [https://mpv.io/](https://mpv.io/)
+- VLC - [https://www.videolan.org/vlc/](https://www.videolan.org/vlc/)
 
 There is a `flake.nix` you can use with `nix develop` to get them.
 

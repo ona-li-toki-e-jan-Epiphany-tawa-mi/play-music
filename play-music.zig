@@ -69,14 +69,25 @@ pub fn main() !void {
     var playlist = Playlist.init(allocator);
     defer playlist.deinit();
     for (ParsedArguments.directories.items) |directory| {
-        try playlist.appendFromDirectory(directory);
+        const songs_loaded = try playlist.appendFromDirectory(directory);
+        try stdout.writer().print(
+            "INFO: {d} song(s) loaded from directory: {s}\n",
+            .{ songs_loaded, directory },
+        );
     }
     if (ParsedArguments.shuffle) playlist.shuffle(random);
 
-    try stdout.writer().print(
-        "INFO: {d} songs loaded\n",
-        .{playlist.songs.items.len},
-    );
+    {
+        const songs_loaded = playlist.songs.items.len;
+        if (0 == songs_loaded) {
+            try stderr.writer().print("ERROR: No songs were found\n", .{});
+            return error.NoSongsLoaded;
+        }
+        try stdout.writer().print(
+            "INFO: {d} song(s) loaded in total\n",
+            .{songs_loaded},
+        );
+    }
 
     while (true) {
         for (playlist.songs.items) |song| {
@@ -336,7 +347,9 @@ const Playlist = struct {
     }
 
     // TODO: add regex matching.
-    fn appendFromDirectory(self: *Self, path: []const u8) !void {
+    fn appendFromDirectory(self: *Self, path: []const u8) !u64 {
+        var songs_appended: u64 = 0;
+
         var directory = try fs.cwd().openDir(path, .{
             .iterate = true,
         });
@@ -356,8 +369,12 @@ const Playlist = struct {
                 };
             };
             errdefer song.deinit(self.allocator);
+
             try self.songs.append(self.allocator, song);
+            songs_appended +|= 1;
         }
+
+        return songs_appended;
     }
 
     fn shuffle(self: *Self, random: Random) void {

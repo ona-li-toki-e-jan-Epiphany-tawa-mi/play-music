@@ -46,20 +46,14 @@ fn bufferedFileWriter(writer: File.Writer) BufferedFileWriter {
 ////////////////////////////////////////////////////////////////////////////////
 
 pub fn main() !void {
-    var stdout = bufferedFileWriter(io.getStdOut().writer());
-    defer stdout.flush() catch {};
     var stderr = bufferedFileWriter(io.getStdErr().writer());
     defer stderr.flush() catch {};
+    var stdout = bufferedFileWriter(io.getStdOut().writer());
+    defer stdout.flush() catch {};
 
     var gpa = GeneralPurposeAllocator(.{}){};
     const allocator = gpa.allocator();
     defer _ = gpa.deinit();
-
-    var prng = RandomPrng.init(@as(u64, @bitCast(time.milliTimestamp())));
-    const random = prng.random();
-
-    try SoundSystem.init(allocator);
-    defer SoundSystem.deinit();
 
     ParsedArguments.init(
         allocator,
@@ -71,10 +65,16 @@ pub fn main() !void {
     };
     defer ParsedArguments.deinit();
 
+    var prng = RandomPrng.init(@as(u64, @bitCast(time.milliTimestamp())));
+    const random = prng.random();
+
+    try SoundSystem.init(allocator);
+    defer SoundSystem.deinit();
+
     var playlist = Playlist.init(allocator);
     defer playlist.deinit();
     for (ParsedArguments.directories.items) |directory| {
-        const songs_loaded = try playlist.appendFromDirectory(directory);
+        const songs_loaded = try playlist.appendFromDirectory(&stderr, directory);
         try stdout.writer().print(
             "INFO: {d} song(s) loaded from directory: {s}\n",
             .{ songs_loaded, directory },
@@ -97,6 +97,7 @@ pub fn main() !void {
     while (true) {
         for (playlist.songs.items) |song| {
             try stdout.writer().print("INFO: Now playing: {s}\n", .{song.file_path});
+            try stderr.flush();
             try stdout.flush();
             try SoundSystem.playSong(song);
         }
@@ -125,12 +126,16 @@ fn printHelp(to: *BufferedFileWriter) !void {
         \\    regex(3).)
         \\
         \\  --no-shuffle
-        \\    Plays the songs in the order they appear in the directory
+        \\    Plays the songs in the order they appear in the directory,
         \\    instead of randomly shuffling them.
         \\
         \\  --no-repeat
-        \\    Exits once all the songs have been played instead of repeating
+        \\    Exits once all the songs have been played, instead of repeating
         \\    them in an endless loop.
+        \\
+        \\  --no-skip-unplayable
+        \\    Exits if some of the songs cannot be played, instead of skipping
+        \\    them.
     , .{ParsedArguments.program_name});
 }
 
@@ -150,6 +155,7 @@ const ParsedArguments = struct {
     var match: ?[]u8 = undefined;
     var shuffle: bool = undefined;
     var repeat: bool = undefined;
+    var skip_unplayable: bool = undefined;
 
     /// Deinitialize with `deinit`.
     fn init(
@@ -164,6 +170,7 @@ const ParsedArguments = struct {
         match = null;
         shuffle = true;
         repeat = true;
+        skip_unplayable = true;
         errdefer deinit();
 
         initialized = true;
@@ -228,6 +235,8 @@ const ParsedArguments = struct {
                 }
             } else if (mem.eql(u8, argument, "--no-repeat")) {
                 repeat = false;
+            } else if (mem.eql(u8, argument, "--no-skip-unplayable")) {
+                skip_unplayable = false;
             } else if (mem.eql(u8, argument, "--")) {
                 while (arguments.next()) |next_argument| {
                     try appendDirectory(next_argument);
@@ -363,7 +372,12 @@ const Playlist = struct {
     }
 
     // TODO: add regex matching.
-    fn appendFromDirectory(self: *Self, path: []const u8) !u64 {
+    /// Requires the sound system to be initialized (see `SoundSystem`.)
+    fn appendFromDirectory(
+        self: *Self,
+        stderr: *BufferedFileWriter,
+        path: []const u8,
+    ) !u64 {
         var songs_appended: u64 = 0;
 
         var directory = try fs.cwd().openDir(path, .{
@@ -386,6 +400,21 @@ const Playlist = struct {
             };
             errdefer song.deinit(self.allocator);
 
+            if (!SoundSystem.isPlayable(song.format)) {
+                if (ParsedArguments.skip_unplayable) {
+                    try stderr.writer().print(
+                        "WARN: No available strategy to play {s} files. Skipping: {s}\n",
+                        .{ @tagName(song.format), song.file_path },
+                    );
+                } else {
+                    try stderr.writer().print(
+                        "ERROR: No available strategy to play {s} files. Offending file: {s}\n",
+                        .{ @tagName(song.format), song.file_path },
+                    );
+                    return error.UnplayableFormat;
+                }
+            }
+
             try self.songs.append(self.allocator, song);
             songs_appended +|= 1;
         }
@@ -403,7 +432,6 @@ const Playlist = struct {
 ////////////////////////////////////////////////////////////////////////////////
 
 // TODO: develop ability to load audio from files and pass to system's sound servers/other.
-// TODO: check if all formats in playlist can be played before playing any.
 
 const SoundSystem = struct {
     var initialized = false;
@@ -446,6 +474,12 @@ const SoundSystem = struct {
         formats_play_strategies_map.deinit(allocator);
 
         initialized = false;
+    }
+
+    fn isPlayable(format: FileFormat) bool {
+        debug.assert(initialized);
+
+        return formats_play_strategies_map.contains(format);
     }
 
     fn playSong(song: Song) !void {

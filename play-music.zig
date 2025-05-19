@@ -311,12 +311,14 @@ const FileFormat = enum {
 
     flac,
     mp3,
+    opus,
     vorbis,
     wav,
 
     const extensions_formats_map = StaticStringMap(FileFormat).initComptime(.{
         .{ ".flac", .flac },
         .{ ".mp3", .mp3 },
+        .{ ".opus", .opus },
         .{ ".ogg", .vorbis },
         .{ ".wav", .wav },
     });
@@ -460,6 +462,7 @@ const SoundSystem = struct {
             switch (format) {
                 .flac => {},
                 .mp3 => {},
+                .opus => {},
                 .vorbis => {},
                 .wav => {},
             }
@@ -537,7 +540,7 @@ const PlayStrategyError = Child.SpawnError;
 
 fn mpvPlayStrategy(allocator: Allocator, song: Song) PlayStrategyError!void {
     switch (song.format) {
-        .flac, .mp3, .vorbis, .wav => {
+        .flac, .mp3, .vorbis, .wav, .opus => {
             const arguments = [_][]const u8{
                 "mpv",
                 "--no-audio-display", // Prevents display of cover art.
@@ -553,7 +556,7 @@ fn mpvPlayStrategy(allocator: Allocator, song: Song) PlayStrategyError!void {
 
 fn cvlcPlayStrategy(allocator: Allocator, song: Song) PlayStrategyError!void {
     switch (song.format) {
-        .flac, .mp3, .vorbis, .wav => {
+        .flac, .mp3, .vorbis, .wav, .opus => {
             const arguments = [_][]const u8{
                 "cvlc",
                 "--play-and-exit", // Makes exit after the song ends.

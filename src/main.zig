@@ -141,7 +141,7 @@ pub fn main() !void {
 }
 
 fn printVersion(to: *BufferedFileWriter) !void {
-    try to.writer().print("{s} 0.1.0\n", .{ParsedArguments.program_name});
+    try to.writer().print("{s} 0.2.0\n", .{ParsedArguments.program_name});
 }
 
 fn printLicensing(to: *BufferedFileWriter) !void {

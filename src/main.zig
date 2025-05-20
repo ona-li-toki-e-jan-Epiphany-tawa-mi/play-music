@@ -131,6 +131,10 @@ pub fn main() !void {
     }
 }
 
+fn printVersion(to: *BufferedFileWriter) !void {
+    try to.writer().print("{s} 0.1.0\n", .{ParsedArguments.program_name});
+}
+
 fn printLicensing(to: *BufferedFileWriter) !void {
     try to.writer().print(
         \\Copyright (c) 2025 ona-li-toki-e-jan-Epiphany-tawa-mi
@@ -159,7 +163,9 @@ fn printLicensing(to: *BufferedFileWriter) !void {
         \\Includes zig-exre, which is licensed under the Mozilla Public License
         \\version 2.0.
         \\
+        \\Included in play-music source.
         \\Original source (sourcehut): https://sr.ht/~leon_plickat/zig-exre/
+        \\
     , .{});
 }
 
@@ -176,6 +182,7 @@ fn printHelp(to: *BufferedFileWriter) !void {
         \\
         \\Options:
         \\  -h, --help       Display help and exit.
+        \\  -v, --version    Display version and exit.
         \\  -l, --license    Display license(s) and source and exit.
         \\
         \\  -m, --match REGEX
@@ -194,6 +201,7 @@ fn printHelp(to: *BufferedFileWriter) !void {
         \\  --no-skip-unplayable
         \\    Exits if some of the songs cannot be played, instead of skipping
         \\    them.
+        \\
     , .{ParsedArguments.program_name});
 }
 
@@ -281,6 +289,9 @@ const ParsedArguments = struct {
             } else if (mem.eql(u8, argument, "--license")) {
                 try printLicensing(stdout);
                 return error.ExitSuccess;
+            } else if (mem.eql(u8, argument, "--version")) {
+                try printVersion(stdout);
+                return error.ExitSuccess;
             } else if (mem.eql(u8, argument, "--no-shuffle")) {
                 shuffle = false;
             } else if (mem.eql(u8, argument, "--match")) {
@@ -336,6 +347,10 @@ const ParsedArguments = struct {
                 },
                 'l' => {
                     try printLicensing(stdout);
+                    return error.ExitSuccess;
+                },
+                'v' => {
+                    try printVersion(stdout);
                     return error.ExitSuccess;
                 },
                 'm' => {

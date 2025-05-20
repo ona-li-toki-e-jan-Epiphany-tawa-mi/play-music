@@ -2,38 +2,41 @@
 
 A simple command-line music player.
 
-Currently depends on mpv to play the songs, but this will be integrated into
-play-music in the future.
+Currently depends on other programs to play the songs, but this will be
+integrated into play-music in the future.
+
+Available play strategies (in order of priority):
+
+1. With mpv [https://mpv.io/](https://mpv.io/), if present.
+2. With cvlc [https://www.videolan.org/vlc/](https://www.videolan.org/vlc/), if present.
 
 ## How to Build
 
-Dependencies
+Dependencies:
 
-- A C compiler supporting c11. Clang, GCC, or Zig recommended.
-- POSIX system.
-- mpv - [https://mpv.io/](https://mpv.io/)
+- zig 0.14.0 (other versions may work) - [https://ziglang.org](https://ziglang.org/).
 
 There is a `flake.nix` you can use with `nix develop` to get them.
 
 Then, run the following command(s):
 
 ```shell
-./build.sh
+zig build
 ```
 
-To enable optimizations, you can append on or more of the following arguments to
-the build command:
+You can append the following arguments for different optimizations:
 
-- `-O3` - general optimizations.
-- `-DNDEBUG` - disable safety checks. Performance > safety.
+- `-Doptimize=ReleaseSafe` - Faster.
+- `-Doptimize=ReleaseFast` - Fasterer, no safety checks.
+- `-Doptimize=ReleaseSmall` - Faster, smaller binaries, no safety checks.
 
 I.e.:
 
 ```sh
-./build.sh -O3 -DNDEBUG
+zig build -Doptimize=ReleaseFast
 ```
 
-The executable will be named `play-music`.
+The executable will appear in `zig-out/bin/`.
 
 ## Installation
 

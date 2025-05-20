@@ -28,7 +28,7 @@
         (system: f { pkgs = import nixpkgs { inherit system; }; });
     in {
       devShells = forAllSystems ({ pkgs }: {
-        default = with pkgs; mkShell { packages = [ astyle mpv ]; };
+        default = with pkgs; mkShell { packages = [ zig_0_14 mpv ]; };
       });
     };
 }

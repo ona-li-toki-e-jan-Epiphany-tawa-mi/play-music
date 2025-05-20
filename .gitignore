@@ -1,5 +1,6 @@
-# Build artifacts.
-play-music
+# Zig.
+zig-out/
+.zig-cache/
 
 # Nix.
 flake.lock

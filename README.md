@@ -26,22 +26,22 @@ There is a `flake.nix` you can use with `nix develop` to get them.
 Then, run the following command(s):
 
 ```shell
-zig build-exe play-music.zig
+zig build
 ```
 
 You can append the following arguments for different optimizations:
 
-- `-O ReleaseSafe` - Faster.
-- `-O ReleaseFast` - Fasterer, no safety checks.
-- `-O ReleaseSmall` - Faster, smaller binaries, no safety checks.
+- `-Doptimize=ReleaseSafe` - Faster.
+- `-Doptimize=ReleaseFast` - Fasterer, no safety checks.
+- `-Doptimize=ReleaseSmall` - Faster, smaller binaries, no safety checks.
 
 I.e.:
 
 ```sh
-zig build-exe play-music.zig -O ReleaseFast
+zig build -Doptimize=ReleaseFast
 ```
 
-The executable will be named `play-music`.
+The executable will appear in `zig-out/bin/`.
 
 ## Installation
 

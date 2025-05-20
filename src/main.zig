@@ -22,7 +22,6 @@ const io = std.io;
 const mem = std.mem;
 const process = std.process;
 const time = std.time;
-
 const Allocator = std.mem.Allocator;
 const ArgIterator = std.process.ArgIterator;
 const ArrayListUnmanaged = std.ArrayListUnmanaged;
@@ -33,13 +32,16 @@ const File = std.fs.File;
 const GeneralPurposeAllocator = std.heap.GeneralPurposeAllocator;
 const Random = std.Random;
 const StaticStringMap = std.StaticStringMap;
-
 const BufferedFileWriter = BufferedWriter(4096, File.Writer);
 const RandomPrng = Random.DefaultPrng;
 
 fn bufferedFileWriter(writer: File.Writer) BufferedFileWriter {
     return .{ .unbuffered_writer = writer };
 }
+
+const exre = @import("zig-exre/exre.zig");
+const RegexMatchConfig = exre.RegexMatchConfig;
+const Regex = exre.Regex(.{});
 
 ////////////////////////////////////////////////////////////////////////////////
 // CLI                                                                        //
@@ -71,10 +73,33 @@ pub fn main() !void {
     try SoundSystem.init(allocator);
     defer SoundSystem.deinit();
 
+    const regex: ?Regex = if (ParsedArguments.match) |pattern|
+        Regex.compile(allocator, pattern) catch |err| {
+            switch (err) {
+                error.RegexInvalid => try stderr.writer().print(
+                    "ERROR: Match pattern '{s}' is invalid (no more information, sorry)\n",
+                    .{pattern},
+                ),
+                error.RegexTooComplex => try stderr.writer().print(
+                    "ERROR: Match pattern '{s}' is too complex (no more information, sorry.)\n",
+                    .{pattern},
+                ),
+                error.OutOfMemory => {},
+            }
+            return err;
+        }
+    else
+        null;
+    defer if (regex) |r| r.deinit();
+
     var playlist = Playlist.init(allocator);
     defer playlist.deinit();
     for (ParsedArguments.directories.items) |directory| {
-        const songs_loaded = try playlist.appendFromDirectory(&stderr, directory);
+        const songs_loaded = try playlist.appendFromDirectory(
+            &stderr,
+            regex,
+            directory,
+        );
         try stdout.writer().print(
             "INFO: {d} song(s) loaded from directory: {s}\n",
             .{ songs_loaded, directory },
@@ -106,6 +131,38 @@ pub fn main() !void {
     }
 }
 
+fn printLicensing(to: *BufferedFileWriter) !void {
+    try to.writer().print(
+        \\Copyright (c) 2025 ona-li-toki-e-jan-Epiphany-tawa-mi
+        \\
+        \\play-music is free software: you can redistribute it and/or modify it
+        \\under the terms of the GNU General Public License as published by the
+        \\Free Software Foundation, either version 3 of the License, or (at your
+        \\option) any later version.
+        \\
+        \\play-music is distributed in the hope that it will be useful, but
+        \\WITHOUT ANY WARRANTY; without even the implied warranty of
+        \\MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+        \\General Public License for more details.
+        \\
+        \\You should have received a copy of the GNU General Public License
+        \\along with play-music. If not, see <https://www.gnu.org/licenses/>.
+        \\
+        \\Source (paltepuk):
+        \\  Clearnet - https://paltepuk.xyz/cgit/play-music.git/about/
+        \\  I2P - http://oytjumugnwsf4g72vemtamo72vfvgmp4lfsf6wmggcvba3qmcsta.b32.i2p/cgit/play-music.git/about/
+        \\  Tor - http://4blcq4arxhbkc77tfrtmy4pptf55gjbhlj32rbfyskl672v2plsmjcyd.onion/cgit/play-music.git/about/
+        \\Source (GitHub): https://github.com/ona-li-toki-e-jan-Epiphany-tawa-mi/play-music/
+        \\
+        \\--------------------
+        \\
+        \\Includes zig-exre, which is licensed under the Mozilla Public License
+        \\version 2.0.
+        \\
+        \\Original source (sourcehut): https://sr.ht/~leon_plickat/zig-exre/
+    , .{});
+}
+
 fn printHelp(to: *BufferedFileWriter) !void {
     try to.writer().print(
         \\Usages:
@@ -113,17 +170,18 @@ fn printHelp(to: *BufferedFileWriter) !void {
         \\
         \\Plays the music files located in DIRECTORY.
         \\
-        \\ Available play strategies (in order of priority):
-        \\   1. With mpv if present.
-        \\   2. With cvlc if present.
+        \\Available play strategies (in order of priority):
+        \\  1. With mpv, if present.
+        \\  2. With cvlc, if present.
         \\
         \\Options:
-        \\  -h, --help    Display help and exit.
+        \\  -h, --help       Display help and exit.
+        \\  -l, --license    Display license(s) and source and exit.
         \\
         \\  -m, --match REGEX
-        \\    Only plays songs whose file name matches REGEX.
-        \\    REGEX is interpreted as an extended regular expression (see
-        \\    regex(3).)
+        \\    Only plays songs whose file name matches REGEX. REGEX is not case
+        \\    sensitive and succeeds on a partial match. Uses zig-exre
+        \\    <https://sr.ht/~leon_plickat/zig-exre/>.
         \\
         \\  --no-shuffle
         \\    Plays the songs in the order they appear in the directory,
@@ -220,6 +278,9 @@ const ParsedArguments = struct {
             if (mem.eql(u8, argument, "--help")) {
                 try printHelp(stdout);
                 return error.ExitSuccess;
+            } else if (mem.eql(u8, argument, "--license")) {
+                try printLicensing(stdout);
+                return error.ExitSuccess;
             } else if (mem.eql(u8, argument, "--no-shuffle")) {
                 shuffle = false;
             } else if (mem.eql(u8, argument, "--match")) {
@@ -273,6 +334,10 @@ const ParsedArguments = struct {
                     try printHelp(stdout);
                     return error.ExitSuccess;
                 },
+                'l' => {
+                    try printLicensing(stdout);
+                    return error.ExitSuccess;
+                },
                 'm' => {
                     if (i < options.len - 1) {
                         // If leftover text in options, it is the argument to -m.
@@ -324,7 +389,7 @@ const FileFormat = enum {
     });
 
     // TODO: mimetypes?
-    fn formatFromFile(path: []const u8) ?Self {
+    fn fromFile(path: []const u8) ?Self {
         return extensions_formats_map.get(fs.path.extension(path));
     }
 };
@@ -337,7 +402,7 @@ const Song = struct {
 
     /// Takes ownership of passed in `path`.
     fn initFromOwnedPath(path: []u8) !Self {
-        if (FileFormat.formatFromFile(path)) |format| {
+        if (FileFormat.fromFile(path)) |format| {
             return .{
                 .file_path = path,
                 .format = format,
@@ -373,11 +438,13 @@ const Playlist = struct {
         self.* = undefined;
     }
 
-    // TODO: add regex matching.
     /// Requires the sound system to be initialized (see `SoundSystem`.)
+    /// If `regex` is not `null`, only files whose name match `regex` will be
+    /// appended.
     fn appendFromDirectory(
         self: *Self,
         stderr: *BufferedFileWriter,
+        regex: ?Regex,
         path: []const u8,
     ) !u64 {
         var songs_appended: u64 = 0;
@@ -389,6 +456,14 @@ const Playlist = struct {
 
         var iterator = directory.iterate();
         while (try iterator.next()) |entry| {
+            if (regex) |r| {
+                const match_mode = RegexMatchConfig{
+                    .mode = .substring,
+                    .case = .ignore,
+                };
+                if (!r.match(match_mode, entry.name)) continue;
+            }
+
             var song = blk: {
                 const file = try fs.path.join(
                     self.allocator,
@@ -396,7 +471,10 @@ const Playlist = struct {
                 );
                 errdefer self.allocator.free(file);
                 break :blk Song.initFromOwnedPath(file) catch |err| switch (err) {
-                    error.NotAnAudioFile => continue,
+                    error.NotAnAudioFile => {
+                        self.allocator.free(file);
+                        continue;
+                    },
                     else => return err,
                 };
             };
@@ -408,6 +486,8 @@ const Playlist = struct {
                         "WARN: No available strategy to play {s} files. Skipping: {s}\n",
                         .{ @tagName(song.format), song.file_path },
                     );
+                    song.deinit(self.allocator);
+                    continue;
                 } else {
                     try stderr.writer().print(
                         "ERROR: No available strategy to play {s} files. Offending file: {s}\n",

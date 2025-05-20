@@ -277,10 +277,13 @@ const ParsedArguments = struct {
 
         var arguments = try process.argsWithAllocator(allocator);
         defer arguments.deinit();
+        var has_arguments = false;
 
         program_name = arguments.next().?;
 
         while (arguments.next()) |argument| {
+            has_arguments = true;
+
             if (0 == argument.len) continue;
 
             if (mem.eql(u8, argument, "--help")) {
@@ -326,6 +329,11 @@ const ParsedArguments = struct {
             } else {
                 try appendDirectory(argument);
             }
+        }
+
+        if (!has_arguments) {
+            try printHelp(stdout);
+            return error.ExitSuccess;
         }
     }
 

@@ -95,11 +95,20 @@ pub fn main() !void {
     var playlist = Playlist.init(allocator);
     defer playlist.deinit();
     for (ParsedArguments.directories.items) |directory| {
-        const songs_loaded = try playlist.appendFromDirectory(
+        const songs_loaded = playlist.appendFromDirectory(
             &stderr,
             regex,
             directory,
-        );
+        ) catch |err| {
+            switch (err) {
+                error.FileNotFound => try stdout.writer().print(
+                    "ERROR: Directory does not exist: {s}\n",
+                    .{directory},
+                ),
+                else => {},
+            }
+            return err;
+        };
         try stdout.writer().print(
             "INFO: {d} song(s) loaded from directory: {s}\n",
             .{ songs_loaded, directory },

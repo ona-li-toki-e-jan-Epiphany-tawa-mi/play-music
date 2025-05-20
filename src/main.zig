@@ -324,7 +324,7 @@ const ParsedArguments = struct {
                 );
                 try printShortHelp(stderr);
                 return error.UnknownLongOption;
-            } else if ('-' == argument[0]) {
+            } else if (2 < argument.len and '-' == argument[0]) {
                 try parseShortOptions(stderr, stdout, argument[1..], &arguments);
             } else {
                 try appendDirectory(argument);
